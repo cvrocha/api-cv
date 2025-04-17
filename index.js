@@ -2,40 +2,39 @@ import express from 'express';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 
-// 1. Carrega variáveis do .env
+// Carrega variáveis do .env
 dotenv.config();
 
-// 2. Verificação rigorosa da chave
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim();
-
-if (!OPENAI_API_KEY || !OPENAI_API_KEY.startsWith('sk-')) {
-  console.error(`
-  ❌ ERRO: Chave OpenAI inválida ou ausente!
-  
-  Certifique-se de:
-  1. Criar um arquivo .env na raiz do projeto
-  2. Adicionar: OPENAI_API_KEY=sua-chave-aqui
-  3. NUNCA commitar o arquivo .env
-  `);
-  process.exit(1);
-}
-
-// 3. Configuração do Express e OpenAI
 const app = express();
 const port = process.env.PORT || 3000;
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+
+// Configuração segura da OpenAI
+let openai;
+if (process.env.OPENAI_API_KEY) {
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+  });
+}
 
 app.use(express.json());
 
-// Rotas
+// Rota GET
 app.get('/', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'online',
-    message: 'API segura com variáveis de ambiente'
+    openai: !!openai
   });
 });
 
+// Rota POST com verificação segura
 app.post('/chat', async (req, res) => {
+  if (!openai) {
+    return res.status(500).json({
+      error: 'OpenAI não configurada',
+      solution: 'Configure a OPENAI_API_KEY no Railway'
+    });
+  }
+
   try {
     const { messages } = req.body;
     
