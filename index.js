@@ -3,38 +3,42 @@ import express from 'express';
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware para parsear JSON
-app.use(express.json());
+// Middlewares ESSENCIAIS
+app.use(express.json()); // Para receber JSON
+app.use(express.urlencoded({ extended: true })); // Para formulários
 
-// Rota GET original
+// Rota GET de teste
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
-    message: 'API rodando 🚀',
-    env_test: process.env.TEST_VAR || 'Nenhuma variável de ambiente carregada'
+    message: 'API rodando!',
+    endpoints: {
+      GET: '/',
+      POST: '/api/chat' // Mudei para um path mais claro
+    }
   });
 });
 
-// Rota POST básica
-app.post('/chat', (req, res) => {
+// Rota POST corrigida
+app.post('/api/chat', (req, res) => { // Path mais explícito
+  console.log('Corpo recebido:', req.body); // Para debug
   res.json({
     status: 'success',
-    message: 'POST recebido!',
-    body: req.body,
-    env_key: process.env.OPENAI_API_KEY ? 'Chave presente' : 'Chave não configurada'
+    received: req.body
   });
 });
 
-// Rota 404 personalizada
+// Rota para 404 personalizado
 app.use((req, res) => {
-  res.status(404).json({
-    error: 'Rota não encontrada',
-    method: req.method,
-    path: req.path
+  res.status(404).json({ 
+    error: 'Rota não existe',
+    tried: {
+      method: req.method,
+      path: req.path
+    }
   });
 });
 
 app.listen(port, () => {
-  console.log(`Servidor rodando na porta ${port}`);
-  console.log('Variáveis de ambiente disponíveis:', process.env.OPENAI_API_KEY ? 'Sim' : 'Não');
+  console.log(`✅ Servidor rodando em http://localhost:${port}`);
 });
