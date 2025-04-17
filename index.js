@@ -1,59 +1,40 @@
 import express from 'express';
-import dotenv from 'dotenv';
-import OpenAI from 'openai';
-
-// Carrega variáveis do .env
-dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Configuração segura da OpenAI
-let openai;
-if (process.env.OPENAI_API_KEY) {
-  openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-  });
-}
-
+// Middleware para parsear JSON
 app.use(express.json());
 
-// Rota GET
+// Rota GET original
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
-    openai: !!openai
+    message: 'API rodando 🚀',
+    env_test: process.env.TEST_VAR || 'Nenhuma variável de ambiente carregada'
   });
 });
 
-// Rota POST com verificação segura
-app.post('/chat', async (req, res) => {
-  if (!openai) {
-    return res.status(500).json({
-      error: 'OpenAI não configurada',
-      solution: 'Configure a OPENAI_API_KEY no Railway'
-    });
-  }
+// Rota POST básica
+app.post('/chat', (req, res) => {
+  res.json({
+    status: 'success',
+    message: 'POST recebido!',
+    body: req.body,
+    env_key: process.env.OPENAI_API_KEY ? 'Chave presente' : 'Chave não configurada'
+  });
+});
 
-  try {
-    const { messages } = req.body;
-    
-    if (!messages) {
-      return res.status(400).json({ error: 'Messages é obrigatório' });
-    }
-
-    const response = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages
-    });
-
-    res.json(response.choices[0].message);
-  } catch (error) {
-    console.error('Erro OpenAI:', error);
-    res.status(500).json({ error: error.message });
-  }
+// Rota 404 personalizada
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Rota não encontrada',
+    method: req.method,
+    path: req.path
+  });
 });
 
 app.listen(port, () => {
   console.log(`Servidor rodando na porta ${port}`);
+  console.log('Variáveis de ambiente disponíveis:', process.env.OPENAI_API_KEY ? 'Sim' : 'Não');
 });
