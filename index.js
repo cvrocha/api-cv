@@ -2,39 +2,39 @@ import express from 'express';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 
-// Configuração do dotenv para carregar variáveis de ambiente
+// Carrega as variáveis de ambiente do arquivo .env
 dotenv.config();
 
-// Verificação da chave da API antes de iniciar o servidor
+// Verifica se a OPENAI_API_KEY existe
 if (!process.env.OPENAI_API_KEY) {
-  console.error('❌ Erro Crítico: OPENAI_API_KEY não encontrada nas variáveis de ambiente');
-  console.error('ℹ️ Certifique-se de que:');
-  console.error('1. Você criou a variável no painel do Railway');
-  console.error('2. O nome da variável está exatamente como "OPENAI_API_KEY"');
-  console.error('3. Você reiniciou o serviço após adicionar a variável');
-  process.exit(1);
+  console.error('❌ Erro: OPENAI_API_KEY não encontrada no ambiente!');
+  console.log('ℹ️ Certifique-se de:');
+  console.log('1. Adicionar a variável no Railway (Settings > Variables)');
+  console.log('2. O nome da variável está exatamente como "OPENAI_API_KEY"');
+  console.log('3. Reiniciar o serviço após adicionar a variável');
+  process.exit(1); // Encerra o servidor se a chave não estiver configurada
 }
 
-// Inicialização do Express e OpenAI
+// Inicializa o Express e a OpenAI
 const app = express();
 const port = process.env.PORT || 3000;
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Middlewares
-app.use(express.json()); // Para parsear JSON
+// Middleware para parsear JSON
+app.use(express.json());
 
-// Rota de saúde
+// Rota de teste (GET)
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
-    message: 'API operacional',
-    environment: process.env.NODE_ENV || 'development'
+    message: 'API OpenAI funcionando 🚀',
+    openai_key: process.env.OPENAI_API_KEY ? '✅ Configurada' : '❌ Não configurada',
   });
 });
 
-// Rota principal de chat
+// Rota principal (POST /chat)
 app.post('/chat', async (req, res) => {
   try {
     const { messages } = req.body;
@@ -42,53 +42,44 @@ app.post('/chat', async (req, res) => {
     // Validação da requisição
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({
-        error: 'O campo "messages" é obrigatório e deve ser um array'
+        error: 'O campo "messages" é obrigatório e deve ser um array.',
       });
     }
 
-    // Chamada à API da OpenAI
-    const completion = await openai.chat.completions.create({
+    // Chamada para a OpenAI
+    const response = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages,
-      temperature: 0.7
+      temperature: 0.7,
     });
 
-    // Resposta formatada
+    // Retorna a resposta da OpenAI
     res.json({
       status: 'success',
-      response: completion.choices[0]?.message
+      response: response.choices[0]?.message,
     });
 
   } catch (error) {
     console.error('Erro na chamada da OpenAI:', error);
-    
-    // Tratamento de erros específicos
-    let statusCode = 500;
-    let errorMessage = 'Erro interno no servidor';
-    
-    if (error instanceof OpenAI.APIError) {
-      statusCode = error.status || 500;
-      errorMessage = error.message;
-    }
-    
-    res.status(statusCode).json({
+
+    // Tratamento de erros
+    res.status(500).json({
       status: 'error',
-      message: errorMessage,
-      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+      message: error.message || 'Erro interno no servidor.',
     });
   }
 });
 
-// Middleware para rotas não encontradas
+// Rota para lidar com rotas não encontradas
 app.use((req, res) => {
   res.status(404).json({
     status: 'error',
-    message: 'Rota não encontrada'
+    message: 'Rota não encontrada.',
   });
 });
 
-// Inicialização do servidor
+// Inicia o servidor
 app.listen(port, () => {
   console.log(`🚀 Servidor rodando na porta ${port}`);
-  console.log(`🔑 OpenAI API Key: ${process.env.OPENAI_API_KEY ? '✔️ Configurada' : '❌ Não configurada'}`);
+  console.log(`🔗 Teste a rota GET em: http://localhost:${port}`);
 });
