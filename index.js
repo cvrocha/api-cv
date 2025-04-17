@@ -1,4 +1,4 @@
-import express from 'express';
+const express = require('express');
 import dotenv from 'dotenv';
 
 dotenv.config(); // <- Isso carrega as variáveis do .env
