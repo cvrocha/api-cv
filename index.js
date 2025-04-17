@@ -1,32 +1,23 @@
-const express = require('express');
-const OpenAI = require('openai');
-require('dotenv').config();
+import express from 'express';
+import dotenv from 'dotenv';
+
+dotenv.config(); // <- Isso carrega as variáveis do .env
 
 const app = express();
-const port = process.env.PORT || 3000;
-
 app.use(express.json());
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+const PORT = process.env.PORT || 3000;
+const OPENAI_KEY = process.env.OPENAI_API_KEY;
+
+app.post('/mensagem', (req, res) => {
+  const { nome, mensagem } = req.body;
+
+  // Aqui você pode usar a OPENAI_KEY com fetch ou axios pra mandar a msg pra API
+  console.log(`Chave da API: ${OPENAI_KEY}`); // só teste
+
+  res.json({ resposta: `Mensagem recebida de ${nome}: "${mensagem}"` });
 });
 
-app.post('/api/prompt', async (req, res) => {
-  const { prompt } = req.body;
-
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    res.json({ response: completion.choices[0].message.content });
-  } catch (error) {
-    console.error("Erro na requisição à OpenAI:", error);
-    res.status(500).json({ error: "Erro ao chamar a OpenAI API" });
-  }
-});
-
-app.listen(port, () => {
-  console.log(`Servidor rodando em http://localhost:${port}`);
+app.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
