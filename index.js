@@ -1,14 +1,23 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
+import 'dotenv/config'; // Carrega .env antes de qualquer coisa
 
 dotenv.config();
 
-const app = express();
-const port = process.env.PORT || 3000;
+// ↓↓↓ Mantenha APENAS ESTA declaração do openai ↓↓↓
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+// Verifique se a chave existe
+if (!process.env.OPENAI_API_KEY) {
+  console.error("❌ OPENAI_API_KEY não encontrada no ambiente!");
+  process.exit(1); // Encerra o servidor se não houver chave
+}
+
+const app = express();
+const port = process.env.PORT || 3000;
 
 // Middleware para parsear JSON
 app.use(express.json());
