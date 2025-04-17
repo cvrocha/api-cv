@@ -1,119 +1,80 @@
 import express from 'express';
-import dotenv from 'dotenv';
 import OpenAI from 'openai';
 
-// ==============================================
-// 1. CONFIGURAÇÃO INICIAL
-// ==============================================
-dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-// ==============================================
-// 2. VERIFICAÇÃO DA CHAVE OPENAI (CRÍTICO!)
-// ==============================================
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim();
+// Método mais robusto para obter a chave
+function getOpenAIKey() {
+  // Tenta obter da variável de ambiente
+  const envKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
+  
+  // Verifica se a chave parece válida
+  if (envKey && envKey.startsWith('sk-')) {
+    return envKey;
+  }
+  
+  return null;
+}
 
-if (!OPENAI_API_KEY || !OPENAI_API_KEY.startsWith('sk-')) {
+const openaiKey = getOpenAIKey();
+
+if (!openaiKey) {
   console.error(`
-  ❌❌❌ ERRO FATAL ❌❌❌
-  OPENAI_API_KEY não configurada ou inválida!
+  ===========================================
+  ERRO CRÍTICO: Chave da OpenAI não encontrada
+  ===========================================
   
-  ➡️ O QUE VERIFICAR:
-  1. No painel do Railway:
-     - Vá em Settings > Variables
-     - Adicione OPENAI_API_KEY (exatamente esse nome)
-     - Valor: sua chave da OpenAI (começa com 'sk-')
-  2. Reinicie o serviço (Deployments > Restart)
-  
-  🔍 Chave detectada: ${OPENAI_API_KEY || 'NÃO ENCONTRADA'}
+  Possíveis causas:
+  1. Variável não definida no Railway
+  2. Nome incorreto da variável (deve ser OPENAI_API_KEY)
+  3. Chave não começa com 'sk-'
+  4. Serviço não foi reiniciado após configurar a variável
+
+  O que fazer:
+  1. Acesse Railway > Settings > Variables
+  2. Adicione OPENAI_API_KEY com sua chave válida
+  3. Reinicie o serviço (Deployments > Restart)
+  4. Verifique os logs para ver se a chave foi carregada
+
+  Dica técnica: ${process.env.OPENAI_API_KEY ? 'Variável existe mas é inválida' : 'Variável não existe'}
   `);
   process.exit(1);
 }
 
-// ==============================================
-// 3. INICIALIZAÇÃO DO OPENAI COM FALLBACK
-// ==============================================
-const openai = new OpenAI({
-  apiKey: OPENAI_API_KEY,
-});
+const openai = new OpenAI({ apiKey: openaiKey });
 
-// ==============================================
-// 4. MIDDLEWARES
-// ==============================================
 app.use(express.json());
 
-// ==============================================
-// 5. ROTAS
-// ==============================================
-
-// Rota de saúde (GET)
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
-    message: 'API operacional ✅',
-    environment: process.env.NODE_ENV || 'development',
-    openai_key: OPENAI_API_KEY ? '✅ Configurada' : '❌ Faltando'
+    message: 'API operacional',
+    openai_configured: !!openaiKey
   });
 });
 
-// Rota principal de chat (POST)
 app.post('/chat', async (req, res) => {
   try {
-    // Validação do corpo da requisição
     const { messages } = req.body;
     
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({
-        error: 'O campo "messages" é obrigatório e deve ser um array',
-        example: {
-          messages: [
-            { role: "user", content: "Sua mensagem aqui" }
-          ]
-        }
-      });
+    if (!messages) {
+      return res.status(400).json({ error: 'Messages are required' });
     }
 
-    // Chamada à API da OpenAI
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages,
-      temperature: 0.7,
-      max_tokens: 500
+    const response = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages
     });
 
-    // Resposta formatada
-    res.json({
-      status: 'success',
-      response: completion.choices[0]?.message
-    });
-
+    res.json(response.choices[0].message);
   } catch (error) {
-    console.error('Erro na OpenAI:', error);
-    
-    // Tratamento de erros específicos
-    const statusCode = error.status || 500;
-    const errorMessage = error.message || 'Erro interno no servidor';
-    
-    res.status(statusCode).json({
-      status: 'error',
-      message: errorMessage,
-      ...(process.env.NODE_ENV !== 'production' && {
-        stack: error.stack,
-        fullError: JSON.stringify(error, null, 2)
-      })
-    });
+    console.error('OpenAI Error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// ==============================================
-// 6. INICIALIZAÇÃO DO SERVIDOR
-// ==============================================
 app.listen(port, () => {
-  console.log(`
-  🚀 Servidor rodando na porta ${port}
-  ➡️ Teste as rotas:
-  - GET  http://localhost:${port}
-  - POST http://localhost:${port}/chat
-  `);
+  console.log(`Server running on port ${port}`);
+  console.log(`OpenAI Key: ${openaiKey ? 'Configured' : 'Missing'}`);
 });
