@@ -2,84 +2,118 @@ import express from 'express';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 
-// Carrega as variáveis de ambiente do arquivo .env
+// ==============================================
+// 1. CONFIGURAÇÃO INICIAL
+// ==============================================
 dotenv.config();
-
-// Verifica se a OPENAI_API_KEY existe
-if (!process.env.OPENAI_API_KEY) {
-  console.error('❌ Erro: OPENAI_API_KEY não encontrada no ambiente!');
-  console.log('ℹ️ Certifique-se de:');
-  console.log('1. Adicionar a variável no Railway (Settings > Variables)');
-  console.log('2. O nome da variável está exatamente como "OPENAI_API_KEY"');
-  console.log('3. Reiniciar o serviço após adicionar a variável');
-  process.exit(1); // Encerra o servidor se a chave não estiver configurada
-}
-
-// Inicializa o Express e a OpenAI
 const app = express();
 const port = process.env.PORT || 3000;
+
+// ==============================================
+// 2. VERIFICAÇÃO DA CHAVE OPENAI (CRÍTICO!)
+// ==============================================
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim();
+
+if (!OPENAI_API_KEY || !OPENAI_API_KEY.startsWith('sk-')) {
+  console.error(`
+  ❌❌❌ ERRO FATAL ❌❌❌
+  OPENAI_API_KEY não configurada ou inválida!
+  
+  ➡️ O QUE VERIFICAR:
+  1. No painel do Railway:
+     - Vá em Settings > Variables
+     - Adicione OPENAI_API_KEY (exatamente esse nome)
+     - Valor: sua chave da OpenAI (começa com 'sk-')
+  2. Reinicie o serviço (Deployments > Restart)
+  
+  🔍 Chave detectada: ${OPENAI_API_KEY || 'NÃO ENCONTRADA'}
+  `);
+  process.exit(1);
+}
+
+// ==============================================
+// 3. INICIALIZAÇÃO DO OPENAI COM FALLBACK
+// ==============================================
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: OPENAI_API_KEY,
 });
 
-// Middleware para parsear JSON
+// ==============================================
+// 4. MIDDLEWARES
+// ==============================================
 app.use(express.json());
 
-// Rota de teste (GET)
+// ==============================================
+// 5. ROTAS
+// ==============================================
+
+// Rota de saúde (GET)
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
-    message: 'API OpenAI funcionando 🚀',
-    openai_key: process.env.OPENAI_API_KEY ? '✅ Configurada' : '❌ Não configurada',
+    message: 'API operacional ✅',
+    environment: process.env.NODE_ENV || 'development',
+    openai_key: OPENAI_API_KEY ? '✅ Configurada' : '❌ Faltando'
   });
 });
 
-// Rota principal (POST /chat)
+// Rota principal de chat (POST)
 app.post('/chat', async (req, res) => {
   try {
+    // Validação do corpo da requisição
     const { messages } = req.body;
-
-    // Validação da requisição
+    
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({
-        error: 'O campo "messages" é obrigatório e deve ser um array.',
+        error: 'O campo "messages" é obrigatório e deve ser um array',
+        example: {
+          messages: [
+            { role: "user", content: "Sua mensagem aqui" }
+          ]
+        }
       });
     }
 
-    // Chamada para a OpenAI
-    const response = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+    // Chamada à API da OpenAI
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
       messages,
       temperature: 0.7,
+      max_tokens: 500
     });
 
-    // Retorna a resposta da OpenAI
+    // Resposta formatada
     res.json({
       status: 'success',
-      response: response.choices[0]?.message,
+      response: completion.choices[0]?.message
     });
 
   } catch (error) {
-    console.error('Erro na chamada da OpenAI:', error);
-
-    // Tratamento de erros
-    res.status(500).json({
+    console.error('Erro na OpenAI:', error);
+    
+    // Tratamento de erros específicos
+    const statusCode = error.status || 500;
+    const errorMessage = error.message || 'Erro interno no servidor';
+    
+    res.status(statusCode).json({
       status: 'error',
-      message: error.message || 'Erro interno no servidor.',
+      message: errorMessage,
+      ...(process.env.NODE_ENV !== 'production' && {
+        stack: error.stack,
+        fullError: JSON.stringify(error, null, 2)
+      })
     });
   }
 });
 
-// Rota para lidar com rotas não encontradas
-app.use((req, res) => {
-  res.status(404).json({
-    status: 'error',
-    message: 'Rota não encontrada.',
-  });
-});
-
-// Inicia o servidor
+// ==============================================
+// 6. INICIALIZAÇÃO DO SERVIDOR
+// ==============================================
 app.listen(port, () => {
-  console.log(`🚀 Servidor rodando na porta ${port}`);
-  console.log(`🔗 Teste a rota GET em: http://localhost:${port}`);
+  console.log(`
+  🚀 Servidor rodando na porta ${port}
+  ➡️ Teste as rotas:
+  - GET  http://localhost:${port}
+  - POST http://localhost:${port}/chat
+  `);
 });
