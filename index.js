@@ -1,18 +1,10 @@
 import express from 'express';
 import cors from 'cors';
-import axios from 'axios';
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Endpoints com fallback
-const DEEPSEEK_API_ENDPOINTS = [
-  'https://api.deepseek.com/v1/chat/completions', // Requer API Key
-  'https://chat.deepseek.com/api/v1/chat'         // Endpoint público (sem key)
-];
-let currentEndpointIndex = 0;
-
-// Configuração do CORS
+// Configuração robusta
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS']
@@ -20,91 +12,91 @@ app.use(cors({
 
 app.use(express.json());
 
-// Função para selecionar o endpoint apropriado
-function getApiConfig() {
-  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
-  const endpoint = DEEPSEEK_API_ENDPOINTS[currentEndpointIndex];
-  
-  return {
-    url: endpoint,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey && endpoint.includes('api.deepseek.com') && { 
-        'Authorization': `Bearer ${apiKey}` 
-      })
-    }
-  };
-}
+// Respostas locais como fallback
+const LOCAL_RESPONSES = {
+  "oi": "Olá! Como posso te ajudar hoje?",
+  "qual é a capital do brasil": "A capital do Brasil é Brasília.",
+  "como você está": "Estou funcionando perfeitamente, obrigado por perguntar!",
+  "o que é inteligência artificial": "IA é a simulação de processos de inteligência humana por máquinas.",
+  "default": "Desculpe, não consegui acessar o serviço de IA. Estou com respostas limitadas no momento."
+};
 
-// Rota de health check
+// Rota de status
 app.get('/health', (req, res) => {
-  const apiConfig = getApiConfig();
   res.json({
     status: 'online',
-    current_endpoint: apiConfig.url,
-    auth_required: apiConfig.headers.Authorization ? 'yes' : 'no'
+    features: {
+      local_fallback: true,
+      deepseek_integration: false
+    },
+    timestamp: new Date().toISOString()
   });
 });
 
-// Rota principal de chat
+// Rota principal com fallback
 app.post('/api/chat', async (req, res) => {
   try {
     const { message } = req.body;
     
-    if (!message) {
-      return res.status(400).json({ error: 'O campo "message" é obrigatório' });
-    }
-
-    const { url, headers } = getApiConfig();
-    
-    const response = await axios.post(
-      url,
-      {
-        model: 'deepseek-chat',
-        messages: [{ role: 'user', content: message }],
-        temperature: 0.7
-      },
-      {
-        headers,
-        timeout: 10000
-      }
-    );
-
-    if (!response.data?.choices?.[0]?.message?.content) {
-      throw new Error('Resposta inválida da API');
-    }
-
-    res.json({ reply: response.data.choices[0].message.content });
-
-  } catch (error) {
-    console.error('Erro no endpoint', DEEPSEEK_API_ENDPOINTS[currentEndpointIndex], error.message);
-    
-    // Alterna para o próximo endpoint
-    currentEndpointIndex = (currentEndpointIndex + 1) % DEEPSEEK_API_ENDPOINTS.length;
-    
-    // Se tentou todos endpoints sem sucesso
-    if (currentEndpointIndex === 0) {
-      return res.status(500).json({
-        error: 'Todos endpoints falharam',
-        details: error.message,
-        suggestion: 'Tente novamente mais tarde ou configure a DEEPSEEK_API_KEY'
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ 
+        error: 'Formato inválido',
+        details: 'O campo "message" deve ser uma string não vazia'
       });
     }
+
+    // Tenta primeiro a API do DeepSeek (se tiver chave)
+    if (process.env.DEEPSEEK_API_KEY) {
+      try {
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`
+          },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: message }],
+            temperature: 0.7
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          return res.json({ 
+            reply: data.choices[0].message.content,
+            source: 'deepseek-api'
+          });
+        }
+      } catch (apiError) {
+        console.error('Falha na API DeepSeek:', apiError.message);
+      }
+    }
+
+    // Fallback para respostas locais
+    const lowerMessage = message.toLowerCase();
+    const reply = LOCAL_RESPONSES[lowerMessage] || LOCAL_RESPONSES['default'];
     
-    // Tenta novamente com o próximo endpoint
-    setTimeout(() => {
-      axios.post('/api/chat', req.body)
-        .then(response => res.json(response.data))
-        .catch(err => res.status(500).json({ error: err.message }));
-    }, 1000);
+    res.json({
+      reply,
+      source: 'local-fallback',
+      info: 'Serviço de IA temporariamente indisponível'
+    });
+
+  } catch (error) {
+    console.error('Erro geral:', error);
+    res.status(500).json({
+      error: 'Erro interno',
+      details: process.env.NODE_ENV === 'development' ? error.message : null
+    });
   }
 });
 
 // Inicia o servidor
 app.listen(port, () => {
   console.log(`🚀 Servidor rodando na porta ${port}`);
-  console.log('🔍 Endpoints configurados:');
-  DEEPSEEK_API_ENDPOINTS.forEach((endpoint, i) => {
-    console.log(`${i + 1}. ${endpoint} ${i === 0 ? '(requer chave)' : '(público)'}`);
-  });
+  console.log('🔍 Endpoints:');
+  console.log(`- POST http://localhost:${port}/api/chat`);
+  console.log(`- GET  http://localhost:${port}/health`);
+  console.log('\n💡 Dica: Configure DEEPSEEK_API_KEY para ativar a integração completa');
 });
