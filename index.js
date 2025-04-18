@@ -3,91 +3,120 @@ import cors from 'cors';
 import axios from 'axios';
 
 const app = express();
-
-// PORT deve ser 3000 (conforme sua variável no Railway)
 const port = process.env.PORT || 3000;
 
-// Configuração ESSENCIAL de CORS
+// Configuração robusta de CORS
 app.use(cors({
   origin: '*',
-  methods: ['GET', 'POST', 'OPTIONS']
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type']
 }));
 
 // Middleware para parsear JSON
 app.use(express.json());
 
-// Rota GET de teste
-app.get('/', (req, res) => {
-  res.json({
-    status: 'online',
-    message: 'API funcionando!',
-    endpoints: {
-      health_check: 'GET /health',
-      chat: 'POST /api/chat'
-    }
-  });
+// Middleware para log de requisições
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
 });
 
 // Rota de health check
 app.get('/health', (req, res) => {
   res.json({
-    status: 'healthy',
+    status: 'online',
+    message: 'API DeepSeek integrada e funcionando',
     timestamp: new Date().toISOString()
   });
 });
 
+// Rota principal de chat
 app.post('/api/chat', async (req, res) => {
-  console.log('Recebida requisição POST em /api/chat');
-  
   try {
     const { message } = req.body;
-    
-    if (!message) {
-      return res.status(400).json({ error: 'O campo "message" é obrigatório' });
+
+    // Validação do input
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({
+        error: 'Parâmetro inválido',
+        details: 'O campo "message" é obrigatório e deve ser uma string'
+      });
     }
 
-    // Código REAL de integração com DeepSeek
+    console.log(`Processando mensagem: "${message.substring(0, 30)}..."`);
+
+    // Configuração da requisição para DeepSeek
     const response = await axios.post(
       'https://api.deepseek.com/v1/chat/completions',
       {
         model: 'deepseek-chat',
-        messages: [{ role: 'user', content: message }],
+        messages: [
+          {
+            role: 'system',
+            content: 'Você é um assistente prestativo que responde em português brasileiro.'
+          },
+          {
+            role: 'user',
+            content: message
+          }
+        ],
         temperature: 0.7,
         max_tokens: 500
       },
       {
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        timeout: 10000
+        timeout: 15000 // 15 segundos de timeout
       }
     );
 
-    const reply = response.data.choices[0]?.message?.content;
+    // Validação da resposta
+    if (!response.data?.choices?.[0]?.message?.content) {
+      throw new Error('Resposta da API em formato inesperado');
+    }
+
+    const reply = response.data.choices[0].message.content;
+
+    console.log('Resposta gerada com sucesso');
     res.json({ reply });
 
   } catch (error) {
-    console.error('Erro na API DeepSeek:', error.response?.data || error.message);
-    
-    let statusCode = 500;
-    let errorMessage = 'Erro ao processar sua mensagem';
+    console.error('Erro na requisição:', {
+      message: error.message,
+      stack: error.stack,
+      response: error.response?.data
+    });
 
-    if (error.response?.status === 429) {
-      statusCode = 429;
-      errorMessage = 'Limite de requisições excedido (tente novamente mais tarde)';
-    }
+    const statusCode = error.response?.status || 500;
+    const errorMessage = error.response?.data?.error?.message || 'Erro ao processar sua mensagem';
 
     res.status(statusCode).json({
       error: errorMessage,
-      details: error.response?.data || error.message
+      details: {
+        type: error.name,
+        message: error.message,
+        ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+      }
     });
   }
 });
 
-// Inicia o servidor
+// Rota de fallback para 404
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Rota não encontrada',
+    available_routes: {
+      GET: ['/health'],
+      POST: ['/api/chat']
+    }
+  });
+});
+
+// Inicialização do servidor
 app.listen(port, () => {
-  console.log(`✅ Servidor rodando na porta ${port}`);
-  console.log(`🔗 Health Check: https://api-cv-production.up.railway.app/health`);
-  console.log(`✉️  Endpoint POST: https://api-cv-production.up.railway.app/api/chat`);
+  console.log(`🚀 Servidor rodando na porta ${port}`);
+  console.log(`🔍 Health check: http://localhost:${port}/health`);
+  console.log(`✉️  Endpoint chat: http://localhost:${port}/api/chat`);
 });
