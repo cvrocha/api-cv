@@ -1,36 +1,48 @@
 import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
-import dotenv from 'dotenv';
-
-// Carrega variáveis de ambiente
-dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Endpoints com fallback
+const DEEPSEEK_API_ENDPOINTS = [
+  'https://api.deepseek.com/v1/chat/completions', // Requer API Key
+  'https://chat.deepseek.com/api/v1/chat'         // Endpoint público (sem key)
+];
+let currentEndpointIndex = 0;
+
 // Configuração do CORS
 app.use(cors({
   origin: '*',
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type']
+  methods: ['GET', 'POST', 'OPTIONS']
 }));
 
 app.use(express.json());
 
-// Verifica se a chave API está configurada
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-if (!DEEPSEEK_API_KEY) {
-  console.error('❌ Erro: DEEPSEEK_API_KEY não está definida');
-  process.exit(1);
+// Função para selecionar o endpoint apropriado
+function getApiConfig() {
+  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+  const endpoint = DEEPSEEK_API_ENDPOINTS[currentEndpointIndex];
+  
+  return {
+    url: endpoint,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey && endpoint.includes('api.deepseek.com') && { 
+        'Authorization': `Bearer ${apiKey}` 
+      })
+    }
+  };
 }
 
 // Rota de health check
 app.get('/health', (req, res) => {
+  const apiConfig = getApiConfig();
   res.json({
     status: 'online',
-    message: 'API funcionando',
-    deepseek_status: DEEPSEEK_API_KEY ? 'Configurada' : 'Não configurada'
+    current_endpoint: apiConfig.url,
+    auth_required: apiConfig.headers.Authorization ? 'yes' : 'no'
   });
 });
 
@@ -38,72 +50,61 @@ app.get('/health', (req, res) => {
 app.post('/api/chat', async (req, res) => {
   try {
     const { message } = req.body;
-
-    // Validação do input
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({
-        error: 'Parâmetro inválido',
-        details: 'O campo "message" é obrigatório e deve ser uma string'
-      });
+    
+    if (!message) {
+      return res.status(400).json({ error: 'O campo "message" é obrigatório' });
     }
 
-    // Chamada à API DeepSeek com autenticação
+    const { url, headers } = getApiConfig();
+    
     const response = await axios.post(
-      'https://api.deepseek.com/v1/chat/completions',
+      url,
       {
         model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content: 'Você é um assistente prestativo que responde em português brasileiro.'
-          },
-          {
-            role: 'user',
-            content: message
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 500
+        messages: [{ role: 'user', content: message }],
+        temperature: 0.7
       },
       {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-        },
+        headers,
         timeout: 10000
       }
     );
 
-    // Validação da resposta
     if (!response.data?.choices?.[0]?.message?.content) {
-      throw new Error('Resposta da API em formato inesperado');
+      throw new Error('Resposta inválida da API');
     }
 
     res.json({ reply: response.data.choices[0].message.content });
 
   } catch (error) {
-    console.error('Erro na API DeepSeek:', {
-      message: error.message,
-      status: error.response?.status,
-      data: error.response?.data
-    });
-
-    const statusCode = error.response?.status || 500;
-    const errorMessage = error.response?.data?.error?.message || 'Erro ao processar sua mensagem';
-
-    res.status(statusCode).json({
-      error: errorMessage,
-      details: {
-        type: error.name,
-        status: statusCode,
-        message: error.message
-      }
-    });
+    console.error('Erro no endpoint', DEEPSEEK_API_ENDPOINTS[currentEndpointIndex], error.message);
+    
+    // Alterna para o próximo endpoint
+    currentEndpointIndex = (currentEndpointIndex + 1) % DEEPSEEK_API_ENDPOINTS.length;
+    
+    // Se tentou todos endpoints sem sucesso
+    if (currentEndpointIndex === 0) {
+      return res.status(500).json({
+        error: 'Todos endpoints falharam',
+        details: error.message,
+        suggestion: 'Tente novamente mais tarde ou configure a DEEPSEEK_API_KEY'
+      });
+    }
+    
+    // Tenta novamente com o próximo endpoint
+    setTimeout(() => {
+      axios.post('/api/chat', req.body)
+        .then(response => res.json(response.data))
+        .catch(err => res.status(500).json({ error: err.message }));
+    }, 1000);
   }
 });
 
 // Inicia o servidor
 app.listen(port, () => {
   console.log(`🚀 Servidor rodando na porta ${port}`);
-  console.log(`🔗 Health Check: http://localhost:${port}/health`);
+  console.log('🔍 Endpoints configurados:');
+  DEEPSEEK_API_ENDPOINTS.forEach((endpoint, i) => {
+    console.log(`${i + 1}. ${endpoint} ${i === 0 ? '(requer chave)' : '(público)'}`);
+  });
 });
