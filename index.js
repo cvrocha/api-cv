@@ -1,23 +1,24 @@
 import express from 'express';
 import cors from 'cors';
-import { OpenAI } from 'openai';
+import { streamText } from '@ai-sdk/deepseek';
+import 'dotenv/config'; // para ler o .env local
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 🔐 Garante que a variável está definida
-const apiKey = process.env.OPENAI_API_KEY;
+const apiKey = process.env.DEEPSEEK_API_KEY;
 if (!apiKey) {
-  throw new Error('A variável OPENAI_API_KEY não foi definida. Configure no Railway ou arquivo .env.');
+  throw new Error('A variável DEEPSEEK_API_KEY não está definida.');
 }
-
-const openai = new OpenAI({ apiKey });
 
 app.use(cors());
 app.use(express.json());
 
 app.get('/', (req, res) => {
-  res.json({ message: 'API rodando com OpenAI!' });
+  res.json({ 
+    status: 'online', 
+    message: 'API rodando com DeepSeek usando chave API' 
+  });
 });
 
 app.post('/api/chat', async (req, res) => {
@@ -28,19 +29,25 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [{ role: 'user', content: message }]
+    const result = await streamText({
+      model: 'deepseek-chat',
+      apiKey: apiKey,
+      messages: [
+        { role: 'user', content: message }
+      ],
     });
 
-    const reply = completion.choices[0].message.content;
-    res.json({ reply });
+    const fullText = await result.text();
+    res.json({ reply: fullText });
   } catch (error) {
-    console.error('Erro ao chamar a OpenAI:', error);
-    res.status(500).json({ error: 'Erro interno do servidor' });
+    console.error('Erro ao usar DeepSeek:', error);
+    res.status(500).json({ 
+      error: 'Erro ao processar sua mensagem',
+      details: error.message 
+    });
   }
 });
 
 app.listen(port, () => {
-  console.log(`Servidor rodando na porta ${port}`);
+  console.log(`✅ Servidor rodando em http://localhost:${port}`);
 });
