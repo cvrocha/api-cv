@@ -5,59 +5,75 @@ import axios from 'axios';
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Configuração do DeepSeek (sem token necessário)
+const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+
+// Middlewares
 app.use(cors());
 app.use(express.json());
 
-// Nova rota de debug
-app.get('/debug', (req, res) => {
+// Rota de status (teste de saúde)
+app.get('/health', (req, res) => {
   res.json({
     status: 'online',
-    deepseek_status: 'Usando API pública (sem token)',
+    provider: 'DeepSeek (gratuito)',
     timestamp: new Date().toISOString()
   });
 });
 
-// Rota POST atualizada
+// Rota principal de chat
 app.post('/api/chat', async (req, res) => {
   const { message } = req.body;
 
   if (!message) {
-    return res.status(400).json({ error: 'Message is required' });
+    return res.status(400).json({ error: 'O campo "message" é obrigatório.' });
   }
 
   try {
     const response = await axios.post(
-      'https://api.deepseek.com/v1/chat/completions',
+      DEEPSEEK_API_URL,
       {
-        model: 'deepseek-chat',
+        model: 'deepseek-chat', // Modelo gratuito
         messages: [{ role: 'user', content: message }],
         temperature: 0.7,
-        max_tokens: 200
+        max_tokens: 500
       },
       {
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        timeout: 10000 // 10 segundos
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 10000 // 10 segundos de timeout
       }
     );
 
-    res.json({ 
-      reply: response.data.choices[0].message.content,
-      usage: response.data.usage
-    });
+    // Extrai a resposta
+    const reply = response.data.choices[0]?.message?.content;
+    
+    if (!reply) {
+      throw new Error('Resposta inválida da API');
+    }
+
+    res.json({ reply });
+
   } catch (error) {
-    console.error('DeepSeek Error:', error.response?.data || error.message);
-    res.status(500).json({
-      error: 'API Error',
-      details: error.response?.data || error.message,
-      tip: 'Tente novamente em alguns minutos ou verifique os logs'
+    console.error('Erro no DeepSeek:', error.response?.data || error.message);
+    
+    // Tratamento de erros específicos
+    let statusCode = 500;
+    let errorMessage = 'Erro ao processar sua mensagem';
+
+    if (error.response?.status === 429) {
+      statusCode = 429;
+      errorMessage = 'Limite de requisições excedido (tente novamente mais tarde)';
+    }
+
+    res.status(statusCode).json({ 
+      error: errorMessage,
+      details: error.response?.data || error.message 
     });
   }
 });
 
+// Inicia o servidor
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-  console.log('DeepSeek integration (public API)');
+  console.log(`🚀 Servidor rodando na porta ${port}`);
+  console.log(`🔗 Teste no Postman: POST http://localhost:${port}/api/chat`);
 });
