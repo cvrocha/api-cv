@@ -1,34 +1,36 @@
 import express from 'express';
+import cors from 'cors'; // 👈 Importando o CORS
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middlewares ESSENCIAIS
-app.use(express.json()); // Para receber JSON
-app.use(express.urlencoded({ extended: true })); // Para formulários
+// 🛡️ Middlewares
+app.use(cors()); // 👈 Aplicando o CORS globalmente
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Rota GET de teste
+// 🔗 Rota GET de teste
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
     message: 'API rodando!',
     endpoints: {
       GET: '/',
-      POST: '/api/chat' // Mudei para um path mais claro
+      POST: '/api/chat'
     }
   });
 });
 
-// Rota POST corrigida
-app.post('/api/chat', (req, res) => { // Path mais explícito
-  console.log('Corpo recebido:', req.body); // Para debug
+// 🤖 Rota POST do chat
+app.post('/api/chat', (req, res) => {
+  console.log('Corpo recebido:', req.body);
   res.json({
     status: 'success',
     received: req.body
   });
 });
 
-// Rota para 404 personalizado
+// ❌ Rota 404 personalizada
 app.use((req, res) => {
   res.status(404).json({ 
     error: 'Rota não existe',
@@ -39,6 +41,7 @@ app.use((req, res) => {
   });
 });
 
+// 🚀 Inicialização
 app.listen(port, () => {
   console.log(`✅ Servidor rodando em http://localhost:${port}`);
 });
