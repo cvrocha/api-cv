@@ -8,21 +8,21 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Rota de status
-app.get('/', (req, res) => {
+// Nova rota de debug
+app.get('/debug', (req, res) => {
   res.json({
-    message: 'API rodando com DeepSeek!',
     status: 'online',
-    provider: 'DeepSeek (gratuito)'
+    deepseek_status: 'Usando API pública (sem token)',
+    timestamp: new Date().toISOString()
   });
 });
 
-// Rota de chat com DeepSeek
+// Rota POST atualizada
 app.post('/api/chat', async (req, res) => {
   const { message } = req.body;
 
   if (!message) {
-    return res.status(400).json({ error: 'Mensagem ausente.' });
+    return res.status(400).json({ error: 'Message is required' });
   }
 
   try {
@@ -31,27 +31,33 @@ app.post('/api/chat', async (req, res) => {
       {
         model: 'deepseek-chat',
         messages: [{ role: 'user', content: message }],
-        temperature: 0.7
+        temperature: 0.7,
+        max_tokens: 200
       },
       {
         headers: {
           'Content-Type': 'application/json',
-          // Não precisa de Authorization header (gratuito)
-        }
+          'Accept': 'application/json'
+        },
+        timeout: 10000 // 10 segundos
       }
     );
 
-    res.json({ reply: response.data.choices[0].message.content });
+    res.json({ 
+      reply: response.data.choices[0].message.content,
+      usage: response.data.usage
+    });
   } catch (error) {
-    console.error('Erro no DeepSeek:', error.response?.data || error.message);
+    console.error('DeepSeek Error:', error.response?.data || error.message);
     res.status(500).json({
-      error: 'Erro ao processar sua mensagem',
-      details: error.response?.data || error.message
+      error: 'API Error',
+      details: error.response?.data || error.message,
+      tip: 'Tente novamente em alguns minutos ou verifique os logs'
     });
   }
 });
 
 app.listen(port, () => {
-  console.log(`Servidor rodando na porta ${port}`);
-  console.log('DeepSeek configurado (gratuito, sem token)');
+  console.log(`Server running on port ${port}`);
+  console.log('DeepSeek integration (public API)');
 });
