@@ -36,9 +36,8 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Rota POST corrigida (atenção ao caminho /api/chat)
 app.post('/api/chat', async (req, res) => {
-  console.log('Recebida requisição POST em /api/chat'); // Log importante
+  console.log('Recebida requisição POST em /api/chat');
   
   try {
     const { message } = req.body;
@@ -47,31 +46,41 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'O campo "message" é obrigatório' });
     }
 
-    // Simulação de resposta - REMOVA quando for usar a API real
-    const mockResponse = {
-      reply: "Esta é uma resposta simulada. Configure a integração com DeepSeek depois.",
-      original_message: message
-    };
+    // Código REAL de integração com DeepSeek
+    const response = await axios.post(
+      'https://api.deepseek.com/v1/chat/completions',
+      {
+        model: 'deepseek-chat',
+        messages: [{ role: 'user', content: message }],
+        temperature: 0.7,
+        max_tokens: 500
+      },
+      {
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
 
-    res.json(mockResponse);
-
-    /* 
-    // Código para usar com a API DeepSeek (descomente depois)
-    const response = await axios.post('https://api.deepseek.com/v1/chat/completions', {
-      model: 'deepseek-chat',
-      messages: [{ role: 'user', content: message }]
-    }, {
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    res.json(response.data.choices[0].message);
-    */
+    const reply = response.data.choices[0]?.message?.content;
+    res.json({ reply });
 
   } catch (error) {
-    console.error('Erro no POST /api/chat:', error);
-    res.status(500).json({ 
-      error: 'Erro interno',
-      details: error.message 
+    console.error('Erro na API DeepSeek:', error.response?.data || error.message);
+    
+    let statusCode = 500;
+    let errorMessage = 'Erro ao processar sua mensagem';
+
+    if (error.response?.status === 429) {
+      statusCode = 429;
+      errorMessage = 'Limite de requisições excedido (tente novamente mais tarde)';
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: error.response?.data || error.message
     });
   }
 });
