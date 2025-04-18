@@ -6,6 +6,9 @@ const port = process.env.PORT || 3000;
 
 // 🛡️ Middlewares
 app.use(cors()); // 👈 Aplicando o CORS globalmente
+app.use(cors({
+  origin: 'https://claude.site' // libera requisições vindas desse domínio
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
