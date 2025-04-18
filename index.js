@@ -12,9 +12,18 @@ const DEEPSEEK_API_ENDPOINTS = [
 ];
 let currentEndpointIndex = 0;
 
-// Middlewares
-app.use(cors());
+// Configuração robusta de CORS para o Railway
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Middleware para parsear JSON
 app.use(express.json());
+
+// Middleware para requisições OPTIONS (pré-flight)
+app.options('*', cors());
 
 // Rota de status (teste de saúde)
 app.get('/health', (req, res) => {
@@ -41,7 +50,10 @@ async function tryDeepSeekRequest(message, retries = 2) {
           max_tokens: 500
         },
         {
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
           timeout: 10000
         }
       );
@@ -58,8 +70,10 @@ async function tryDeepSeekRequest(message, retries = 2) {
   }
 }
 
-// Rota principal de chat
+// Rota principal de chat - CORRIGIDA para evitar 404
 app.post('/api/chat', async (req, res) => {
+  console.log('Requisição POST recebida no /api/chat'); // Log de depuração
+  
   const { message } = req.body;
 
   if (!message) {
@@ -90,14 +104,26 @@ app.post('/api/chat', async (req, res) => {
     res.status(statusCode).json({
       error: errorMessage,
       details: error.response?.data || error.message,
-      current_endpoint: DEEPSEEK_API_ENDPOINTS[currentEndpointIndex]
+      current_endpoint: DEEPSEEK_API_ENDPOINTS[currentEndpointIndex],
+      suggestion: 'Verifique se os endpoints da API DeepSeek ainda estão válidos'
     });
   }
+});
+
+// Rota de fallback para 404
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Rota não encontrada',
+    available_routes: {
+      GET: ['/health'],
+      POST: ['/api/chat']
+    }
+  });
 });
 
 // Inicia o servidor
 app.listen(port, () => {
   console.log(`🚀 Servidor rodando na porta ${port}`);
-  console.log(`🔗 Teste no Postman: POST http://localhost:${port}/api/chat`);
-  console.log('Endpoints configurados:', DEEPSEEK_API_ENDPOINTS);
+  console.log(`🔗 Endpoint POST: https://api-cv-production.up.railway.app/api/chat`);
+  console.log('Endpoints DeepSeek configurados:', DEEPSEEK_API_ENDPOINTS);
 });
