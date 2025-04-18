@@ -5,8 +5,12 @@ import axios from 'axios';
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Configuração do DeepSeek (sem token necessário)
-const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+// Configuração do DeepSeek (com fallback para endpoints alternativos)
+const DEEPSEEK_API_ENDPOINTS = [
+  'https://api.deepseek.com/v1/chat/completions',
+  'https://chat.deepseek.com/api/v1/chat'
+];
+let currentEndpointIndex = 0;
 
 // Middlewares
 app.use(cors());
@@ -17,9 +21,42 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'online',
     provider: 'DeepSeek (gratuito)',
+    current_endpoint: DEEPSEEK_API_ENDPOINTS[currentEndpointIndex],
     timestamp: new Date().toISOString()
   });
 });
+
+// Função para tentar a requisição com diferentes endpoints
+async function tryDeepSeekRequest(message, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    const currentEndpoint = DEEPSEEK_API_ENDPOINTS[currentEndpointIndex];
+    
+    try {
+      const response = await axios.post(
+        currentEndpoint,
+        {
+          model: 'deepseek-chat',
+          messages: [{ role: 'user', content: message }],
+          temperature: 0.7,
+          max_tokens: 500
+        },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error(`Tentativa ${i + 1} falhou no endpoint ${currentEndpoint}:`, error.message);
+      
+      // Alterna para o próximo endpoint
+      currentEndpointIndex = (currentEndpointIndex + 1) % DEEPSEEK_API_ENDPOINTS.length;
+      
+      if (i === retries) throw error;
+    }
+  }
+}
 
 // Rota principal de chat
 app.post('/api/chat', async (req, res) => {
@@ -30,23 +67,9 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const response = await axios.post(
-      DEEPSEEK_API_URL,
-      {
-        model: 'deepseek-chat', // Modelo gratuito
-        messages: [{ role: 'user', content: message }],
-        temperature: 0.7,
-        max_tokens: 500
-      },
-      {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 10000 // 10 segundos de timeout
-      }
-    );
+    const responseData = await tryDeepSeekRequest(message);
+    const reply = responseData.choices[0]?.message?.content;
 
-    // Extrai a resposta
-    const reply = response.data.choices[0]?.message?.content;
-    
     if (!reply) {
       throw new Error('Resposta inválida da API');
     }
@@ -55,8 +78,7 @@ app.post('/api/chat', async (req, res) => {
 
   } catch (error) {
     console.error('Erro no DeepSeek:', error.response?.data || error.message);
-    
-    // Tratamento de erros específicos
+
     let statusCode = 500;
     let errorMessage = 'Erro ao processar sua mensagem';
 
@@ -65,9 +87,10 @@ app.post('/api/chat', async (req, res) => {
       errorMessage = 'Limite de requisições excedido (tente novamente mais tarde)';
     }
 
-    res.status(statusCode).json({ 
+    res.status(statusCode).json({
       error: errorMessage,
-      details: error.response?.data || error.message 
+      details: error.response?.data || error.message,
+      current_endpoint: DEEPSEEK_API_ENDPOINTS[currentEndpointIndex]
     });
   }
 });
@@ -76,4 +99,5 @@ app.post('/api/chat', async (req, res) => {
 app.listen(port, () => {
   console.log(`🚀 Servidor rodando na porta ${port}`);
   console.log(`🔗 Teste no Postman: POST http://localhost:${port}/api/chat`);
+  console.log('Endpoints configurados:', DEEPSEEK_API_ENDPOINTS);
 });
