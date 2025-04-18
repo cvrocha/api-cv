@@ -1,34 +1,60 @@
 import express from 'express';
+import { config } from 'dotenv';
+import OpenAI from 'openai';
+
+config(); // Carrega variáveis do .env
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middlewares ESSENCIAIS
-app.use(express.json()); // Para receber JSON
-app.use(express.urlencoded({ extended: true })); // Para formulários
+// Configurar OpenAI
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
-// Rota GET de teste
+// Middlewares
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Rota GET
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
     message: 'API rodando!',
     endpoints: {
       GET: '/',
-      POST: '/api/chat' // Mudei para um path mais claro
+      POST: '/api/chat'
     }
   });
 });
 
-// Rota POST corrigida
-app.post('/api/chat', (req, res) => { // Path mais explícito
-  console.log('Corpo recebido:', req.body); // Para debug
-  res.json({
-    status: 'success',
-    received: req.body
-  });
+// Rota POST com OpenAI
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { messages } = req.body;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages
+    });
+
+    const resposta = completion.choices[0].message.content;
+
+    res.json({
+      status: 'success',
+      response: resposta
+    });
+  } catch (error) {
+    console.error('Erro:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Erro ao gerar resposta',
+      error: error.message
+    });
+  }
 });
 
-// Rota para 404 personalizado
+// Rota 404
 app.use((req, res) => {
   res.status(404).json({ 
     error: 'Rota não existe',
