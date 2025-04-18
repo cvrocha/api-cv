@@ -1,21 +1,23 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { OpenAI } from 'openai';
 
-dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// 🔐 Garante que a variável está definida
+const apiKey = process.env.OPENAI_API_KEY;
+if (!apiKey) {
+  throw new Error('A variável OPENAI_API_KEY não foi definida. Configure no Railway ou arquivo .env.');
+}
+
+const openai = new OpenAI({ apiKey });
 
 app.use(cors());
 app.use(express.json());
 
 app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'API rodando com OpenAI!' });
+  res.json({ message: 'API rodando com OpenAI!' });
 });
 
 app.post('/api/chat', async (req, res) => {
@@ -32,10 +34,10 @@ app.post('/api/chat', async (req, res) => {
     });
 
     const reply = completion.choices[0].message.content;
-    res.json({ status: 'success', reply });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erro ao processar a mensagem' });
+    res.json({ reply });
+  } catch (error) {
+    console.error('Erro ao chamar a OpenAI:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
   }
 });
 
