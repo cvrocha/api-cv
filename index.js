@@ -8,26 +8,28 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middlewares essenciais
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'OPTIONS']
-}));
+// Verificação CRÍTICA das variáveis
+console.log('🔍 Variáveis carregadas:', {
+  PORT: port,
+  DEEPSEEK_KEY_PRESENT: !!process.env.DEEPSEEK_API_KEY
+});
+
+// Middlewares
+app.use(cors());
 app.use(express.json());
 
-// Respostas locais (fallback)
-const LOCAL_RESPONSES = {
-  "oi": "Olá! Como posso te ajudar hoje?",
-  "qual é a capital do brasil": "A capital do Brasil é Brasília.",
-  "default": "Desculpe, não consegui acessar o serviço de IA."
+// Respostas locais
+const LOCAL_FALLBACK = {
+  "oi": "Olá! Eu sou o assistente virtual.",
+  "default": "Serviço de IA indisponível no momento."
 };
 
 // Rota de saúde
 app.get('/health', (req, res) => {
   res.json({
     status: 'online',
-    deepseek_configured: !!process.env.DEEPSEEK_API_KEY,
-    timestamp: new Date().toISOString()
+    deepseek: !!process.env.DEEPSEEK_API_KEY,
+    serverTime: new Date().toISOString()
   });
 });
 
@@ -37,13 +39,13 @@ app.post('/api/chat', async (req, res) => {
     const { message } = req.body;
     
     if (!message) {
-      return res.status(400).json({ error: 'O campo "message" é obrigatório' });
+      return res.status(400).json({ error: 'Mensagem obrigatória' });
     }
 
-    // Tenta usar a API DeepSeek se a chave existir
+    // Tentativa com DeepSeek
     if (process.env.DEEPSEEK_API_KEY) {
       try {
-        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        const apiRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -51,43 +53,35 @@ app.post('/api/chat', async (req, res) => {
           },
           body: JSON.stringify({
             model: 'deepseek-chat',
-            messages: [{ role: 'user', content: message }],
-            temperature: 0.7
+            messages: [{ role: 'user', content: message }]
           })
         });
 
-        if (response.ok) {
-          const data = await response.json();
+        if (apiRes.ok) {
+          const data = await apiRes.json();
           return res.json({
             reply: data.choices[0].message.content,
-            source: 'deepseek-api'
+            source: 'deepseek'
           });
         }
       } catch (apiError) {
-        console.error('Erro na API DeepSeek:', apiError.message);
+        console.error('Erro na API:', apiError.message);
       }
     }
 
-    // Fallback local
-    const reply = LOCAL_RESPONSES[message.toLowerCase()] || LOCAL_RESPONSES['default'];
+    // Fallback
     res.json({
-      reply,
-      source: 'local-fallback',
-      info: process.env.DEEPSEEK_API_KEY 
-        ? 'Serviço de IA temporariamente indisponível' 
-        : 'Integração não configurada'
+      reply: LOCAL_FALLBACK[message.toLowerCase()] || LOCAL_FALLBACK.default,
+      source: 'local'
     });
 
   } catch (error) {
     console.error('Erro interno:', error);
-    res.status(500).json({ error: 'Erro no servidor' });
+    res.status(500).json({ error: 'Falha no servidor' });
   }
 });
 
-// Inicia o servidor
+// Inicialização
 app.listen(port, () => {
-  console.log(`✅ Servidor rodando na porta ${port}`);
-  console.log('🔍 Endpoints:');
-  console.log(`- POST http://localhost:${port}/api/chat`);
-  console.log(`- GET  http://localhost:${port}/health`);
+  console.log(`✅ Servidor rodando em http://localhost:${port}`);
 });
