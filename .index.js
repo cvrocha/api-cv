@@ -1,103 +1,163 @@
 import express from 'express';
 import cors from 'cors';
-import axios from 'axios';
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Configuração do DeepSeek (com fallback para endpoints alternativos)
-const DEEPSEEK_API_ENDPOINTS = [
-  'https://api.deepseek.com/v1/chat/completions',
-  'https://chat.deepseek.com/api/v1/chat'
-];
-let currentEndpointIndex = 0;
+// Configuração robusta
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS']
+}));
 
-// Middlewares
-app.use(cors());
 app.use(express.json());
 
-// Rota de status (teste de saúde)
+// Respostas locais como fallback
+const LOCAL_RESPONSES = {
+  "oi": "Olá! Como posso te ajudar hoje?",
+  "qual é a capital do brasil": "A capital do Brasil é Brasília.",
+  "como você está": "Estou funcionando perfeitamente, obrigado por perguntar!",
+  "o que é inteligência artificial": "IA é a simulação de processos de inteligência humana por máquinas.",
+  "default": "Desculpe, não consegui acessar o serviço de IA. Estou com respostas limitadas no momento."
+};
+
+// Rota de status
 app.get('/health', (req, res) => {
   res.json({
     status: 'online',
-    provider: 'DeepSeek (gratuito)',
-    current_endpoint: DEEPSEEK_API_ENDPOINTS[currentEndpointIndex],
+    domain: 'api-cv-production.up.railway.app',
+    features: {
+      local_fallback: true,
+      deepseek_integration: !!process.env.DEEPSEEK_API_KEY
+    },
     timestamp: new Date().toISOString()
   });
 });
 
-// Função para tentar a requisição com diferentes endpoints
-async function tryDeepSeekRequest(message, retries = 2) {
-  for (let i = 0; i <= retries; i++) {
-    const currentEndpoint = DEEPSEEK_API_ENDPOINTS[currentEndpointIndex];
+// Middleware de log para todas as requisições
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
+});
+
+// Rota principal com fallback
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { message } = req.body;
     
-    try {
-      const response = await axios.post(
-        currentEndpoint,
-        {
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ 
+        error: 'Formato inválido',
+        details: 'O campo "message" deve ser uma string não vazia'
+      });
+    }
+
+    console.log(`Recebida mensagem: "${message}"`);
+
+    // Tenta primeiro a API do DeepSeek (se tiver chave)
+    if (process.env.DEEPSEEK_API_KEY) {
+      console.log('Chave da API DeepSeek detectada, tentando conexão...');
+      
+      try {
+        const apiUrl = 'https://api.deepseek.com/v1/chat/completions';
+        console.log(`Enviando requisição para: ${apiUrl}`);
+        
+        const requestBody = {
           model: 'deepseek-chat',
           messages: [{ role: 'user', content: message }],
-          temperature: 0.7,
-          max_tokens: 500
-        },
-        {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 10000
+          temperature: 0.7
+        };
+
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        console.log(`Status da resposta: ${response.status}`);
+        
+        if (!response.ok) {
+          const errorBody = await response.text();
+          console.error('Erro na resposta da API:', {
+            status: response.status,
+            body: errorBody
+          });
+          throw new Error(`API returned ${response.status}`);
         }
-      );
 
-      return response.data;
-    } catch (error) {
-      console.error(`Tentativa ${i + 1} falhou no endpoint ${currentEndpoint}:`, error.message);
-      
-      // Alterna para o próximo endpoint
-      currentEndpointIndex = (currentEndpointIndex + 1) % DEEPSEEK_API_ENDPOINTS.length;
-      
-      if (i === retries) throw error;
-    }
-  }
-}
+        const data = await response.json();
+        console.log('Resposta da API recebida com sucesso');
+        
+        return res.json({ 
+          reply: data.choices[0].message.content,
+          source: 'deepseek-api',
+          model: data.model,
+          usage: data.usage
+        });
 
-// Rota principal de chat
-app.post('/api/chat', async (req, res) => {
-  const { message } = req.body;
-
-  if (!message) {
-    return res.status(400).json({ error: 'O campo "message" é obrigatório.' });
-  }
-
-  try {
-    const responseData = await tryDeepSeekRequest(message);
-    const reply = responseData.choices[0]?.message?.content;
-
-    if (!reply) {
-      throw new Error('Resposta inválida da API');
+      } catch (apiError) {
+        console.error('Falha detalhada na API DeepSeek:', {
+          message: apiError.message,
+          stack: apiError.stack,
+          config: {
+            hasKey: !!process.env.DEEPSEEK_API_KEY,
+            keyPresent: process.env.DEEPSEEK_API_KEY ? '***' + process.env.DEEPSEEK_API_KEY.slice(-4) : 'não'
+          }
+        });
+      }
+    } else {
+      console.log('Chave da API DeepSeek não configurada - usando fallback local');
     }
 
-    res.json({ reply });
+    // Fallback para respostas locais
+    const lowerMessage = message.toLowerCase();
+    const reply = LOCAL_RESPONSES[lowerMessage] || LOCAL_RESPONSES['default'];
+    
+    res.json({
+      reply,
+      source: 'local-fallback',
+      info: process.env.DEEPSEEK_API_KEY 
+        ? 'Serviço de IA temporariamente indisponível' 
+        : 'Integração com DeepSeek não configurada'
+    });
 
   } catch (error) {
-    console.error('Erro no DeepSeek:', error.response?.data || error.message);
-
-    let statusCode = 500;
-    let errorMessage = 'Erro ao processar sua mensagem';
-
-    if (error.response?.status === 429) {
-      statusCode = 429;
-      errorMessage = 'Limite de requisições excedido (tente novamente mais tarde)';
-    }
-
-    res.status(statusCode).json({
-      error: errorMessage,
-      details: error.response?.data || error.message,
-      current_endpoint: DEEPSEEK_API_ENDPOINTS[currentEndpointIndex]
+    console.error('Erro geral no endpoint /api/chat:', {
+      error: error.message,
+      stack: error.stack,
+      requestBody: req.body
     });
+    
+    res.status(500).json({
+      error: 'Erro interno',
+      details: process.env.NODE_ENV === 'development' ? error.message : null,
+      support: 'api-cv-production.up.railway.app/health'
+    });
+  }
+});
+
+// Rota para verificar variáveis de ambiente (apenas para desenvolvimento)
+app.get('/env-check', (req, res) => {
+  if (process.env.NODE_ENV !== 'production') {
+    res.json({
+      deepseek_key: process.env.DEEPSEEK_API_KEY ? '***' + process.env.DEEPSEEK_API_KEY.slice(-4) : 'não configurada',
+      node_env: process.env.NODE_ENV,
+      port: process.env.PORT
+    });
+  } else {
+    res.status(403).json({ error: 'Não disponível em produção' });
   }
 });
 
 // Inicia o servidor
 app.listen(port, () => {
   console.log(`🚀 Servidor rodando na porta ${port}`);
-  console.log(`🔗 Teste no Postman: POST http://localhost:${port}/api/chat`);
-  console.log('Endpoints configurados:', DEEPSEEK_API_ENDPOINTS);
+  console.log(`🌐 Domínio: api-cv-production.up.railway.app`);
+  console.log('🔍 Endpoints:');
+  console.log(`- POST https://api-cv-production.up.railway.app/api/chat`);
+  console.log(`- GET  https://api-cv-production.up.railway.app/health`);
+  console.log('\n💡 Dica: Configure DEEPSEEK_API_KEY para ativar a integração completa');
 });
